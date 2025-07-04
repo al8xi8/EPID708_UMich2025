@@ -6,7 +6,8 @@
 - **Credit Hours**: 1  
 - **Modality**: Residential  
 - **Language**: R (preferred)  
-- **Instructor**: TBD  
+- **Instructor**: David McCoy (david_mccoy@berkeley.edu)
+
 
 ### 🔍 Course Description
 
