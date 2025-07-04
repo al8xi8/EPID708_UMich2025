@@ -1,0 +1,287 @@
+---
+title: "SSE 708: Machine Learning in the Era of Big Data"
+subtitle: "Substitution Estimators, TMLE"
+author: "David McCoy"
+date: "July 7-11, 2024"
+output: pdf_document
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup,  include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Substitution Estimators
+
+We start with simple substitution estimators for the average treatment affect (ATE).  The estimand is 
+$E_W \{ E(Y \mid A=1,W)-E(Y \mid A=0,W) \}$,
+which, under assumptions, is equal to the causal mean difference, $E(Y(1)-Y(0))$. 
+In addition, we also estimate the causal attributable risk 
+$EY-E_W \{E(Y \mid A=0,W)\}$ which is equal (under assumptions) to $E(Y-Y(0))$.  
+Below are both simulations and data analysis.
+
+```{r sub1}
+### Data generating function
+dat.gen.1=function(n,probsw,probsa,bY) {
+  W=sample(1:5,n,replace=T,prob=probsw)
+  A=rbinom(n,1,probsa[W])
+  X=cbind(1,A,W-1)
+  PYgivenAW=1/(1+exp(-(X%*%bY)))
+  Y=rbinom(n,1,PYgivenAW)
+  return(data.frame(W,A,Y))
+}
+
+### Parameters of Simulation
+probsw=c(0.2,0.2,0.2,0.2,0.2)
+probsa = c(seq(0.12,0.05,length=5))
+bY = c(-2,1,-0.25)
+n=1000
+set.seed(403)
+### Get simulated data
+dat=dat.gen.1(n,probsw,probsa,bY)
+### Display True Distribution
+par(mfrow=c(1,1))
+par(mar = c(5,5,2,5))
+w=1:5
+Xt=cbind(1,0,w-1)#A=0, everyone untreated
+PYgivena0w=1/(1+exp(-(Xt%*%bY)))
+Xt=cbind(1,1,w-1)
+PYgivena1w=1/(1+exp(-(Xt%*%bY)))#A=1, everyone untreated
+plot(w,PYgivena1w,pch="1",ylim=c(0.00,0.3),xlab="w",ylab="P(Y=1|A=a,W=w)")
+points(w,PYgivena0w,pch="0")  
+### Get matrix of relevant probabilities to calculate true ATE
+yprobdat=data.frame(PYgivena0w,PYgivena1w)
+yprobdat=data.frame(W=1:5,pw=probsw,yprobdat)
+yprobdat=data.frame(yprobdat,probsa)
+
+#### Get observed estimates in the simulated data Using Saturated (NP) Model
+yprobobs=NULL
+for(i in 1:5) {
+  pyaw=mean(dat$Y[dat$A==1 & dat$W==i])
+  pyaw=c(pyaw,mean(dat$Y[dat$A==0 & dat$W==i]))
+  yprobobs=rbind(yprobobs,pyaw)
+}
+plot(w,yprobobs[,1],pch="1",ylim=c(0.00,0.4),xlab="w",ylab=expression(paste(hat(P),"(Y=1|A=a,W=w)",sep="")))
+points(w,yprobobs[,2],pch="0")  
+
+### Estimated Pn(W=w) - wtab just using simple proportions
+tt=table(dat$A,dat$Y,dat$W)
+wtab=(table(dat$W)/(length(dat$W)))
+### tabout is estimated relevant probabilities for estimating ATE
+tabout=NULL
+for(i in 1:5) {
+  tabout=rbind(tabout,c(wtab[i],tt[2,2,i],sum(tt[2,,i]),yprobobs[i,1],tt[1,2,i],sum(tt[1,,i]),yprobobs[i,2]))
+}
+colnames(tabout)=paste("est.",c("pw","ny1","na1","pya1w","ny0","na0","pya0w"),sep="")
+############################################
+## estimated data-generating distribution
+############################################
+#### Get all estimates and true values of data generating distribuiton in same data frame
+res.out=cbind(yprobdat[,c(1:2,4,3)],diff.tr=yprobdat[,4]-yprobdat[,3],
+              tabout,diff.est=tabout[,"est.pya1w"]-tabout[,"est.pya0w"])
+#### Get estimates and true values of relevant parameters
+##########  E(Y1),E(Y0),E(Y1-Y0),E(Y-Y0)
+ATE.sat=sum(tabout[,1]*(tabout[,4]-tabout[,7]))
+ey1.sat=sum(tabout[,1]*tabout[,4])
+ey0.sat=sum(tabout[,1]*tabout[,7])
+ATE.true=sum(yprobdat[,2]*(yprobdat[,4]-yprobdat[,3]))
+ey0.true=sum(yprobdat[,2]*(yprobdat[,3]))
+ey1.true=sum(yprobdat[,2]*(yprobdat[,4]))
+ey.true =sum(yprobdat[,2]*yprobdat[,4]*yprobdat[,5]+(yprobdat[,2]*yprobdat[,3]*(1-yprobdat[,5])))
+pim.true=ey.true-ey0.true #causal attributable risk
+pim.sat=mean(dat[,"Y"])-ey0.sat #observed attributable risk
+### Print out values
+####################  True
+## E(Y(0))
+print(ey0.true)
+## E(Y(1))
+print(ey1.true)
+## EY
+print(ey.true)
+## ATE
+print(ATE.true)
+## PIM
+print(pim.true)
+####################  Estimated
+## EY(0)
+print(ey0.sat)
+## EY(1)
+print(ey1.sat)
+## EY
+print(mean(dat[,"Y"]))
+## ATE
+print(ATE.sat)
+## ATE
+print(pim.sat)
+#######################  Repeat assuming parametric model for Q(A,W)=E(Y|A,W)
+#########
+########  Note, not saturated model
+glm1=glm(Y~A+factor(W),data=dat,family=binomial())
+summary(glm1)
+############################################
+## Figure for estimated data-generating distribution
+############################################
+datn=data.frame(W=1:5,A=0)
+predA0=predict(glm1,newdata=datn,type="response")
+datn=data.frame(W=1:5,A=1)
+predA1=predict(glm1,newdata=datn,type="response")
+par(mfrow=c(1,1))
+plot(w,yprobobs[,1],pch="1",ylim=c(0.00,0.50),xlab="w",ylab=expression(paste(hat(P),"(Y=1|A=a,W=w)",sep="")))
+points(w,yprobobs[,2],pch="0")
+lines(w,predA0,lty=1,col=1)
+lines(w,predA1,lty=2,col=2)
+
+### Add this to results data frame
+res.out=cbind(res.out,glm.predA1=predA1,glm.predA0=predA0,glm.diff=predA1-predA0)
+
+### Get substitution estimate
+datn=dat
+predA=predict(glm1,newdata=datn,type="response")
+eyA.glm=mean(predA)#used for calculating attribute risk
+datn[,"A"]=0
+predA0=predict(glm1,newdata=datn,type="response")
+eyA0.glm=mean(predA0)
+datn[,"A"]=1
+predA1=predict(glm1,newdata=datn,type="response")
+eyA1.glm=mean(predA1)
+ATE.glm=eyA1.glm-eyA0.glm
+pim.glm=eyA.glm-eyA0.glm
+# EY(0)
+print(eyA0.glm)
+# EY(1)
+print(eyA1.glm)
+# EY
+print(eyA.glm)
+# ATE
+print(ATE.glm)
+# PIM
+print(pim.glm)
+#### Combine all results into the final results data frame
+xx=c(NA,NA,ey1.true,ey0.true,ATE.true,NA,NA,NA,ey1.sat,NA,NA,ey0.sat,ATE.sat,eyA1.glm,eyA0.glm,ATE.glm)
+res.out2=rbind(res.out,xx)
+res.out2=data.frame(res.out2)
+res.out2[,1]=as.character(res.out2[,1])
+res.out2[6,1]="Marginals"
+```
+
+Now, we examine the WCGS data
+
+
+```{r sub2}
+## Package that allows one to read in data from STATA and other stat software
+library(foreign)
+## Make sure that wcgs.dta is in the right directory
+wcgs=read.dta("wcgs.dta")
+### reduce to only variables needed for analysis and also get rid of rows with missing
+### values
+dat=na.omit(wcgs[,c(11,2:7,9,10)])
+##############  ATE for binary behavior type:  dibpat0=1 (type A), dibpat0=0 (type B).
+#############  Assume for now, remaining variables are confounders
+glm.all=glm(chd69~.,data=dat,family=binomial())
+X=dat[,-1]
+### Get estimate E(Y|A=0,W)
+X[,"dibpat0"]=0
+predY.A0=predict(glm.all,type="response",newdata=X)
+### Get estimate E(Y|A=1,W)
+X[,"dibpat0"]=1
+predY.A1=predict(glm.all,type="response",newdata=X)
+#### estimates of EY0,EY1 and E(Y1-Y0)
+est.EY0=mean(predY.A0)
+est.EY1=mean(predY.A1)
+est.ATE=est.EY1-est.EY0
+print(c(est.EY0,est.EY1,est.ATE))
+###################   Repeat using SL as predictor
+#### Need to have one vector of outocme, and a matrix of predictors
+Y=dat[,1]
+X=dat[,-1]
+library(SuperLearner)
+#### Add a learner
+SL.inter2=function (Y, X, newX, family, direction = "both", trace = 0, 
+                    k = 2, ...) 
+{
+  fit.glm <- glm(Y ~ ., data = X, family = family)
+###########  Make the null model at least include the variable of interest (dibpat0)
+  fit.step <- step(fit.glm, scope = list(lower=Y~dibpat0,upper=Y ~ .^2), direction = direction, 
+                   trace = trace, k = k)
+  pred <- predict(fit.step, newdata = newX, type = "response")
+  fit <- list(object = fit.step)
+  out <- list(pred = pred, fit = fit)
+  class(out$fit) <- c("SL.step")
+  return(out)
+}
+
+SL.library <- c("SL.glm", "SL.stepAIC", "SL.glmnet", "SL.gam", "SL.mean","SL.knn","SL.inter2")
+SL.wcgs=SuperLearner(Y=Y,X=X,family=binomial(),SL.library=SL.library,verbose=F)
+SL.wcgs
+### Get estimate E(Y|A=0,W)
+Xnew=X
+Xnew[,"dibpat0"]=0
+predY.A0=predict(SL.wcgs,newdata=Xnew,X=X,Y=Y)
+### Get estimate E(Y|A=1,W)
+Xnew[,"dibpat0"]=1
+predY.A1=predict(SL.wcgs,newdata=Xnew,X=X,Y=Y)
+#### estimates of EY0,EY1 and E(Y1-Y0)
+est.EY0.SL=mean(predY.A0$pred)
+est.EY1.SL=mean(predY.A1$pred)
+est.ATE.SL=est.EY1.SL-est.EY0.SL
+out.wcgs=cbind(c(est.EY0,est.EY1,est.ATE),c(est.EY0.SL,est.EY1.SL,est.ATE.SL))
+rownames(out.wcgs)=c("EY0","EY1","ATE")
+colnames(out.wcgs)=c("glm","SL")
+print(out.wcgs)
+```
+
+
+# TMLE
+Let's practice on WCGS data
+
+```{r tmle2}
+library(foreign)
+library(tmle)
+#setwd("~/Dropbox (UC Berkeley Biostat)/hubbardlap/Michigan Summer 2016/Class Material/data/")
+wcgs=read.dta("wcgs.dta")
+### reduce to only variables needed for analysis
+dat=wcgs[,c(11,2:7,9,10)]
+summary(dat)
+Y=dat[,1]
+A=dat[,9]
+W=dat[,-c(1,9)]
+### Note, only missing data for chol0 (adjustment variable).  Use trick
+### to make new basis functions for cholestoral 
+### (say Z) =(I(Z is obs),I(Z is obs)*Z).
+### Below is general code one can use on the so-called W matrix
+xp=dim(W)[2]
+sum.na=function(x){sum(is.na(x))}
+sna=apply(W,2,sum.na)
+nmesW=names(W)
+for(k in 1:xp){
+    if(sna[k] > 0) {
+      ix=as.numeric(is.na(W[,k])==F)
+    	W[is.na(W[,k]),k]=0 #replace the default NA with 0
+    	W=data.frame(W,ix)
+    	nmesW=c(nmesW,paste("Imiss_",nmesW[k],sep="")) }
+} 
+names(W)=nmesW
+W[W$chol0==0,]
+table(is.na(W$chol0))
+
+#### Library for SL 
+# Below is a good library, but just use simpler one so it runs faster - this library can
+## take several minutes to complete.
+#Q.lib= c("SL.glm", "SL.stepAIC", "SL.glmnet", "SL.gam", "SL.glm.interaction",
+#         "SL.earth", "tmle.SL.dbarts2")
+Q.lib= c("SL.glm", "SL.glmnet", "SL.gam")
+## Below can take a bit even with smaller, not very good, library
+tmle.wcgs=tmle(Y,A,W,family="binomial",Q.SL.library=Q.lib, verbose = T)
+print(tmle.wcgs)
+### Get relevant estimates and CI
+EY0.tmle=mean(tmle.wcgs$Qstar[,1])
+EY1.tmle=mean(tmle.wcgs$Qstar[,2])
+ATE.tmle=tmle.wcgs$estimates$ATE$psi
+CI.tmle=tmle.wcgs$estimates$ATE$CI
+### Compare estimates
+out.wcgs=data.frame(out.wcgs,TMLE=c(EY0.tmle,EY1.tmle,ATE.tmle))
+ ########### Print results.
+out.wcgs
+```
+
