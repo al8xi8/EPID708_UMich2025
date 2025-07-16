@@ -3,9 +3,7 @@
 ## 📘 Course Overview
 
 - **Term**: Summer 2025  
-- **Credit Hours**: 1  
-- **Modality**: Residential  
-- **Language**: R (preferred)  
+- **Language**: R  
 - **Instructor**: David McCoy (david_mccoy@berkeley.edu)
 
 
