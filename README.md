@@ -7,7 +7,7 @@
 - **Instructor**: David McCoy (david_mccoy@berkeley.edu)
 
 
-### Course Description
+## Course Description
 
 This course focuses on recent advances in machine learning for epidemiologic analysis, particularly in the context of causal inference and prediction. Students learn to apply **Targeted Maximum Likelihood Estimation (TMLE)** and other tools for:
 
