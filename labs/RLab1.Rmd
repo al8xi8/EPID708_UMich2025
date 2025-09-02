@@ -1,0 +1,514 @@
+---
+title: "SSE 708: Machine Learning in the Era of Big Data"
+subtitle: "An introduction to Rstudio, tidyverse, and dplyr"
+author: "David McCoy"
+date: "July 7-11, 2025"
+output: pdf_document
+#  ioslides_presentation: default
+#  slidy_presentation: default
+editor_options: 
+  chunk_output_type: console
+---
+
+### Learning objectives for today:
+
+1. What is a data frame
+2. How to read a comma separated values (CSV) file using `read_csv()` 
+3. Get to know the data using `str()`, `head()`, `dim()`, and `names()` 
+4. Manipulate the data frame using the R package `dplyr`'s main functions:
+    - `rename()`
+    - `select()`
+    - `arrange()`
+    - `filter()`
+    - `mutate()`
+    - `group_by()`
+    - `summarize()`
+
+### Readings
+
+* Here are some  online resources (optional, but helpful!):
+  * [Data Frames](https://learningstatisticswithr.com/lsr-0.6.pdf (See section 4.8))
+  * [15 min intro to dplyr](https://www.youtube.com/watch?v=aywFompr1F4)
+  * [Data wrangling cheat sheet](https://www.rstudio.com/wp-content/uploads/2015/02/data-wrangling-cheatsheet.pdf)
+
+### What is a data frame?
+
+- A data frame is a data set. 
+- We read data into R from common sources like Excel spreadsheets (.xls or .xlsx), 
+    text files (.txt), comma separate value files (.csv), and other formats.
+- The simplest format of data contains one row for each individual in the study. 
+- The first column of the data identifies the **individual** (perhaps by a name or an ID **variable**). 
+- Subsequent columns are **variables** that have been recorded or measured.
+
+### Lake data from Baldi and Moore (B&M)
+
+- Six rows of data from a study of mercury concentration across 53 lakes 
+- I've added three fabricated rows 
+- I've placed these data in Day-2 folder
+- Let's find it there
+
+### readr is a library to import data into R
+
+- To access `readr`'s functions we load the library like this:
+
+```{r}
+library(readr)
+```
+
+- Click the green arrow to run the code or place your cursor on the line of code
+and type `cmd + enter` (Mac) or `control + enter` (PC)
+- A green rectangle that temporarily appears next to the code shows you that it 
+has run.
+
+### `read_csv()` to load the lake data in R
+- `read_csv()` is a function from the `readr` library used to import csv files.
+- code template: `your_data <- read_csv("pathway_to_data.csv")`
+- The `<-` is called the **assignment operator**. It says to save the imported
+data into an object called `your_data`.
+
+```{r read-lake-data}
+lake_data <- read_csv("Data_mercury_lake.csv")
+```
+
+* Anytime you see "##" on the html slides or in the PDF lecture files, the text in those
+lines are the **output** of running the code in the previous line. So the lines 
+above are the output displayed when you run the `read_csv()` function.
+
+### Exercise 1
+
+1. Execute the above code using either the green arrow or by clicking on it and 
+hitting the keyboard shortcut (`cmd + enter` on mac or `Ctrl + enter` on PC). 
+2. Note that the data appears in the Environment pane in the top right. 
+   - Notice the number of **observations** and the number of **variables**. 
+3. Click the tiny table icon to the right of the `lake_data` in the Environment 
+pane to open the **Viewer** tab and inspect the data.
+
+# Check your understanding!
+
+### Four functions to get to know a dataset
+
+* `head(your_data)`: Shows the first six rows of the supplied dataset
+* `dim(your_data)`: Provides the number of rows by the number of columns
+* `names(your_data)`: Lists the variable names of the columns in the dataset
+* `str(your_data)`: Summarizes the above information and more
+
+I use these functions all the time! Multiple times per session when working with
+data to remind me what the variable names are, and what the data looks like.
+
+### head()
+
+First six rows:
+
+```{r head-lake-data}
+head(lake_data)
+```
+
+### dim()
+
+```{r dim-lake-data}
+dim(lake_data)
+```
+
+Are there 9 rows or columns of data?
+
+### names()
+
+```{r names-lake-data}
+names(lake_data)
+```
+
+### str()
+
+```{r str-lake-data}
+str(lake_data)
+```
+
+### Using `dplyr` functions for data manipulation {.bigger} 
+
+- `rename()`
+- `select()`
+- `arrange()`
+- `filter()`
+- `mutate()`
+- `group_by()`
+- `summarize()`
+
+### Load the `dplyr` library to access the functions
+
+```{r load-dplyr}
+library(dplyr)
+```
+
+- These messages mean that some functions (e.g., filter()) share names with 
+functions from other libraries. So, when we use `filter()` we will now use the
+`dplyr` version because the `stats` library version has been masked.
+- You don't need to worry about masking for now.
+
+### Function 1: rename()
+
+What do you think rename does?
+
+First print the names of the variables:
+```{r print-variable-names}
+names(lake_data)
+```
+
+Run the `rename()` function and assign it to `lake_data_tidy`:
+```{r}
+lake_data_tidy <- rename(lake_data, name_of_lake = lakes)
+```
+
+Then reprint the variable names:
+```{r}
+names(lake_data_tidy)
+```
+
+### Function 1: rename() multiple variables at once
+
+You can `rename()` multiple variables at once:
+
+```{r rename-two-variables}
+lake_data_tidy <- rename(lake_data, 
+                         name_of_lake = lakes, 
+                         ph_level = ph)
+```
+
+### Code template for rename() function
+
+```{r rename, eval = F}
+new_dataset <- rename(old_dataset, new_name = old_name)
+```
+
+Another way to write the above code is to use the **pipe** operator (`%>%`):
+
+```{r rename-with pipe, eval = F}
+new_dataset <- old_dataset %>% rename(new_name = old_name)
+```
+
+The pipe will become very useful in a few slides
+
+### Function 2: select()
+
+Based on the output below, what do you think `select()` does? 
+
+```{r select-first-three}
+smaller_data <- select(lake_data, lakes, ph, chlorophyll)
+names(smaller_data)
+```
+
+### Function 2: select()
+
+* We use `select()` to select a subset of **variables**. 
+* This is very handy if we inherit a large dataset with several variables that
+we do not need.
+
+### Function 2: "negative select()"
+
+We can also use "negative `select()`" to deselect variables. Suppose we wanted
+to keep all variables except for `age_data`:
+
+```{r deselect-last-variable}
+smaller_data_2 <- select(lake_data, - age_data)
+names(smaller_data_2)
+```
+
+We place a negative sign in front of `age_data` to remove it from the dataset.
+
+### Rewrite using the pipe operator
+
+```{r}
+smaller_data <- lake_data %>% select(lakes, ph, chlorophyll)
+smaller_data_2 <- lake_data %>% select(- age_data)
+```
+
+* Going forward, we will use the pipe operator to write code using any `dplyr` functions
+* This is because we can use the pipe to stack many `dplyr` functions in a row
+
+### Function 3: arrange()
+
+What does arrange do? First type `View(lake_data)` to look at the original data. Then 
+run the code and examine its output below. What is different?:
+
+```{r arrange-ph}
+lake_data %>% arrange(ph)
+```
+
+### Function 3: arrange() in descending order
+
+```{r arrange-neg-ph}
+lake_data %>% arrange(- ph)
+```
+
+### Function 3: arrange() by two variables
+
+```{r arrange-age-and-ph}
+lake_data %>% arrange(age_data, ph)
+```
+
+### Function 4: mutate()
+
+- **`mutate()` is one of the most useful functions!** 
+- It is used to add new variables to the dataset. Suppose that someone told you 
+that the number of fish sampled was actually in hundreds, such that 5 is actually 500. You can use mutate to add a new variable to your dataset that is in the hundreds:
+
+```{r mutate-fish-count}
+lake_data_new_fish <- lake_data %>% 
+  mutate(actual_fish_sampled = number_fish_sampled * 100)
+
+lake_data_new_fish
+```
+
+### Use `%>%` to append several lines of code together
+- We have saved many of new datasets in our environment! 
+- If these datasets were larger, they would take up a lot of space. 
+- Rather than saving a new dataset each time, we can make successive changes
+to one dataset like this:
+
+```{r rename-select-and-mutate}
+tidy_lake_data <- lake_data %>% 
+  rename(name_of_lake = lakes) %>%
+  mutate(actual_fish_sampled = number_fish_sampled * 100) %>%
+  select(- age_data, - number_fish_sampled)
+```
+
+- When you see `%>%`, say the words "**and then**...". For example, "Take `lake_data` **and then** rename `lakes` to name_of_lake, **and then** mutate..."
+
+### Use `%>%` to "pipe" several lines of code together
+
+```{r rename-select-and-mutate-eval}
+tidy_lake_data <- lake_data %>% 
+  rename(lake_name = lakes) %>%
+  mutate(actual_fish_sampled = number_fish_sampled * 100) %>%
+  select(- age_data, - number_fish_sampled)
+
+tidy_lake_data
+```
+
+### Function 5: `filter()`
+
+Filter is another very useful function! What might `filter()` do? 
+
+### Function 5: `filter()`ing on numeric variables
+We use filter to select which rows we want to keep in the dataset. Suppose you were only interested in lakes with `ph` levels of 7 or higher.
+
+```{r filter-on-ph}
+lake_data_filtered <- lake_data %>% filter(ph > 7)
+lake_data_filtered
+```
+
+# Check your understanding!
+
+### Function 5: `filter()`ing on character/string variables
+
+Let's try a few more ways to `filter()` the data set since subsetting data is so 
+important:
+
+```{r filter-on-recent}
+lake_data %>% filter(age_data == "recent")
+```
+
+- `==` is read as "is equal to"
+
+```{r filter-not-on-recent}
+lake_data %>% filter(age_data != "recent") 
+```
+
+- `!=` is read as "is not equal to"
+
+### Function 5: `filter()`ing on character/string variables
+
+```{r filter-on-name}
+lake_data %>% filter(lakes %in% c("Alligator", "Blue Cypress")) 
+```
+
+- `%in%` is the "in" operator. We are selecting rows where the variable `lakes` 
+belongs to the specified list.
+- The `c()` combines "Alligator" and "Blue Cypress" into a list
+
+### Function 5: multiple `filter()`s at once
+```{r filter-multiple}
+lake_data %>% filter(ph > 6, chlorophyll > 30)
+
+#this is the same as:
+lake_data %>% filter(ph > 6 & chlorophyll > 30)
+```
+
+- A comma or the "and" operator (`&`) are equivalent. Here they say, filter the dataset and keep only rows with `ph > 6` AND `chlorophyll > 30`
+
+### Function 5: `filter()` using "or"
+```{r filter-multiple-OR}
+lake_data %>% filter(ph > 6 | chlorophyll > 30)
+```
+
+- `|` is the OR operator. At least one of `ph > 6` or `chlorophyll > 30` needs 
+to be true.
+
+### Functions 6 and 7: group_by() and summarize()
+
+Let's execute the following code and see what it does.
+
+```{r group_by-and-mean}
+lake_data %>% 
+  group_by(age_data) %>% 
+  summarize(mean_ph = mean(ph))
+```
+
+What happened?
+
+### Functions 6 and 7: group_by() and summarize()
+
+Another one:
+
+```{r group_by-and-mean-sd}
+lake_data %>% 
+  group_by(age_data) %>% 
+  summarize(mean_ph = mean(ph),
+            standard_deviation_ph = sd(ph))
+```
+
+
+### Exercise R1.1
+Create a code block below that reads in the data for class (coursdata1_synth.csv), and ....
+
+```{r}
+set.seed(708)
+n <- 120  # number of orders
+
+sim_book_orders <- tibble(
+  order_id     = sprintf("O%04d", 1:n),
+  title        = sample(c("Data Science 101","R for Everyone","Causal Inference",
+                          "Bayesian Basics","Deep Learning Hands-On","The Tidyverse",
+                          "Statistical Thinking","Machine Learning Recipes"), n, TRUE),
+  genre        = sample(c("CS","Statistics","AI","DataSci"), n, TRUE,
+                        prob = c(.25,.25,.25,.25)),
+  price_usd    = round(runif(n, 20, 80), 2),
+  units        = sample(1:4, n, TRUE, prob = c(.5,.3,.15,.05)),
+  member_status= sample(c("member","guest"), n, TRUE, prob = c(.6,.4)),
+  country      = sample(c("USA","CAN","UK","AUS"), n, TRUE, prob = c(.55,.15,.2,.1)),
+  rating       = sample(1:5, n, TRUE, prob = c(.05,.1,.2,.35,.3))
+)
+
+```
+
+## Hands-on practice — dplyr & readr
+
+We’ll use the **simulated bookstore orders** data you created earlier  
+(`sim_book_orders.csv` in your working directory).
+
+---
+
+# Book Orders Data Analysis
+
+## Setup
+```{r setup, message=FALSE}
+library(tidyverse)
+library(forcats)
+```
+
+## 1. Import & Peek
+Read "sim_book_orders.csv" into `books`. Run `head()`, `str()`, and `dim()`.
+
+```{r import-data}
+# Your code here
+
+```
+
+## 2. Rename Variables
+Rename `price_usd` → `price`, `member_status` → `member`.
+
+```{r rename-vars}
+# Your code here
+
+```
+
+## 3. Create New Variables
+Use `mutate()` to add:
+- `revenue = price * units`
+- `discount_flag = if_else(units > 2, "bulk", "regular")`
+
+```{r create-vars}
+# Your code here
+
+```
+
+## 4. Select a Tidy Column Order
+Keep `order_id`, `title`, `genre`, `units`, `price`, `revenue`, `member`, `country`, `rating`.
+
+```{r select-columns}
+# Your code here
+
+```
+
+## 5. Filter Rows
+Keep orders where `price > 50` and `genre == "AI"`.
+
+```{r filter-data}
+# Your code here
+
+```
+
+## 6. Arrange
+Sort that filtered data by `revenue` (descending).
+
+```{r arrange-data}
+# Your code here
+
+```
+
+## 7. Group & Summarize
+For each genre, compute average rating and total revenue.
+
+```{r group-summarize-genre}
+# Your code here
+
+```
+
+## 8. Member vs Guest Spend
+Group by `member` and return the mean revenue and order count.
+
+```{r member-analysis}
+# Your code here
+
+```
+
+## 9. Re-order Factor Levels
+Re-order `genre` by descending total revenue (hint: `fct_reorder()` from forcats).
+
+```{r reorder-factors}
+# Your code here
+
+```
+
+## 10. Export
+Save the summary table from task 7 as "genre_revenue_rating.csv" using `write_csv()`.
+
+```{r export-data}
+# Your code here
+
+```
+
+### Recap: What functions did we use?
+
+1. `library()` to load `readr` and `dplyr`.
+2. `read_csv()` to read csv files from a directory.
+3. `head()`, `str()`, `dim()`, and `names()` to look at our imported data.
+4. `rename()` to rename variables in a data frame.
+5. `select()` to select a subset of variables.
+6. `arrange()` to sort a dataset according to one or more variables.
+7. `mutate()` to create new variables.
+8. `filter()` to select a subset of rows.
+9. `group_by() and summarize()` to group the data by a categorial variable and 
+calculate a statistic.
+10. `mean()` and `sd()` to calculate the mean and standard deviation of variables.
+
+### Recap: What operators did we use?
+
+1. Assignment arrow (`<-`): This is our most important operator!
+2. Greater than (`>`) There are also: 
+    - Less than (`<`)
+    - Greater than or equal to (`>=`), and,
+    - Less than or equal to: (`<=`) 
+4. Is equal to (`==`), and is not equal to (`!=`)
+5. `%in%` to select from a list, where the list is created using `c()`, i.e., 
+`lakes %in% c("Alligator", "Annie")`
+

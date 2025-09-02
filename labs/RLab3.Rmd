@@ -1,0 +1,321 @@
+---
+title: 'R for Machine Learning: SuperLearning'
+author: "David McCoy"
+output:
+  html_document:
+    df_print: paged
+bibliography: references.bib
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup,  include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Introduction
+This discusses implementation of the SuperLearner covered in class [see @superlearn and chapter 3 in @van2011targeted].  There are two basic functions within the Superlearner (SL) package: SuperLearner and CV.SuperLearner.  The SuperLearner function returns a prediction algorithm that can be used for predictions from future inputs.  Though it contains some information about the cross-validated fit of SL, to really assess estimates of performance for future use, one need also run the CV.SuperLearner package, which cross-validates the SL itself and uses this to asses the cross-validated fit.  In addition, if the outcome is binary, one might want to use another package after CV.SuperLearner called cvAUC [see @LeDell:2013fk], which both estimates and provides inference for the AUC: area under the curve, specifically the receiver-operator curve (ROC).  The AUC is a global summary of performance for prediction of binary outcomes with the property that AUC = 1 if prediction is perfect, and AUC=0.5 if prediction is not better than a coinflip with the probability of the event equal to the proportion of $Y=1$ in the data.  The ROC curve shows the trade-off of uses different cut-offs in the predicted probability for assigning a future observation to $Y=1$.  
+
+# Univariate Smoother
+```{r SL1, warning=F,message=F}
+###################  Simulated Data
+rm(list = ls(all.names = TRUE))
+library(SuperLearner)
+library(SIS)
+library(randomForest)
+# package for Bayes glm
+library(arm)
+library(foreign)
+#### General package for making ROC curves
+library(ROCR)
+#### package for getting average CV estimate of AUC as well as inference.
+library(cvAUC)
+
+?SuperLearner
+
+##simulate training data:
+ n = 100
+ X = runif(n, -4, 4)
+ #stepwise function between X and Y
+ Y0=-1*(X < -3) + 3*(X > -2) + -2*(X > 0) + 4*(X>2) + -1*(X >3) 
+ #incorporate random error term
+ Y = -1*(X < -3) + 3*(X > -2) + -2*(X > 0) + 4*(X>2) + -1*(X >3)+ rnorm(n)
+ plot(X, Y0)
+ plot(X, Y)
+
+ X = data.frame(X=X)
+
+# simulate test data:
+ m = 10000
+ newX = runif(m, -4, 4)
+ newY = -1*(newX < -3) + 3*(newX > -2) + -2*(newX > 0) + 
+   4*(newX>2) + -1*(newX>3) + rnorm(m)
+ newX = data.frame(X=newX)
+
+
+ # short-cut for creating multiple loess functions:
+ for(ii in c(.5, .25, .1)){
+eval(parse(file="", text=paste("SL.loess.", ii,
+" = function(..., span = ", ii, ") {
+SL.loess(..., span=span)
+}", sep="")))
+ }
+ 
+# This code dynamically creates 3 separate loess functions with different span parameters
+# Useful for SuperLearner package which needs multiple algorithm variants
+#
+# WHAT IT CREATES:
+# - SL.loess.0.5()  - loess with span = 0.5 (moderate smoothing)
+# - SL.loess.0.25() - loess with span = 0.25 (less smoothing, more wiggly)  
+# - SL.loess.0.1()  - loess with span = 0.1 (minimal smoothing, very flexible)
+#parse() transforming character strings s to expressions, calls, etc.
+#eval() takes an expression and evaluates it 
+ 
+SL.nnet 
+SL.nnet.3=SL.nnet
+### Use fix to change the default size from 2 to 3
+# fix(SL.nnet.3)
+
+### SL Library
+listWrappers()
+SL.lib = c("SL.glm", "SL.randomForest","SL.nnet", "SL.loess",
+           "SL.loess.0.1","SL.loess.0.25","SL.loess.0.5",
+           "SL.nnet.3","SL.gam")
+
+test = SuperLearner(Y=Y, X=X, newX=newX, SL.library=SL.lib, family=gaussian(),verbose=F) #family = gaussian or binomial 
+test
+names(test)
+#recall: loss is function that measures badness of guess & risk 
+## is E(loss over all guesses)
+#coef is the weight that we will give to that model in the SUperLearner
+
+## Plot predicted values versus true mean regression
+oo=order(newX[,1])
+plot(newX[oo,1],test$SL.predict[oo],type="l",xlab="X",ylab="E(Y|X)")
+## True Regression
+true.reg=function(X){-1*(X < -3) + 3*(X > -2) + -2*(X > 0) + 
+    4*(X>2) + -1*(X >3)}
+lines(newX[oo,1],true.reg(newX[oo,1]),lwd=2,col=2)
+### Compare to just random forest
+Z=data.frame(Y,X)
+test.RF=randomForest(Y~X,data=Z)
+yhat.RF = predict(test.RF,newdata=newX)
+### Add line to plot and legend
+lines(newX[oo,1],yhat.RF[oo],col=3,lty=2)
+legend(-3.75,4,c("SL","True","RF"),col=1:3,lty=c(1,1,2),bty="n")
+### Compare R2 values
+r2.SL=1-(mean((test$SL.predict-newY)^2)/var(newY))
+r2.RF=1-(mean((yhat.RF-newY)^2)/var(newY))
+round(c(r2.SL,r2.RF),3)
+
+### R² = 0.85 → Model explains 85% of variance (excellent)
+### R² = 0.60 → Model explains 60% of variance (good)
+### R² = 0.30 → Model explains 30% of variance (poor)
+```
+ 
+# Multivariate Prediction
+## Continuous Outcomes
+
+```{r SL2, warning=F,message=F}
+## Set seed so results can be duplicated
+set.seed(23432)
+## Make training set
+n = 500
+p = 50
+X = matrix(rnorm(n*p), nrow = n, ncol = p)
+View(X)
+colnames(X) = paste("X", 1:p, sep="")
+X = data.frame(X)
+Y = X[, 1] + sqrt(abs(X[, 2] * X[, 3])) + X[, 2] - X[, 3] + rnorm(n)
+
+## test set
+m = 1000
+newX = matrix(rnorm(m*p), nrow = m, ncol = p)
+colnames(newX) = paste("X", 1:p, sep="")
+newX = data.frame(newX)
+newY = newX[, 1] + sqrt(abs(newX[, 2] * newX[, 3])) + newX[, 2] -
+  newX[, 3] + rnorm(m)
+
+# generate Library and run Super Learner
+SL.library = c("SL.glm", "SL.randomForest", "SL.gam",
+  "SL.polymars", "SL.mean")
+test = SuperLearner(Y = Y, X = X, newX = newX, SL.library = SL.library,
+  verbose = F, method = "method.NNLS")
+test
+names(test)
+plot(test$SL.predict,newY)
+abline(0,1)
+#### Test R2
+r2=1-(mean((test$SL.predict-newY)^2)/var(newY))
+text(-2,6,paste("R2 = ",round(r2,3),sep=""))
+
+### Screening algorithms do variable reduction for applying
+### Learner
+SL.library = list(c("SL.glmnet", "All"), 
+              c("SL.glm", "screen.randomForest", "All", "screen.SIS"),
+              "SL.randomForest", c("SL.polymars", "All"), "SL.mean")
+test = SuperLearner(Y = Y, X = X, newX = newX, SL.library = SL.library,
+  verbose = F, method = "method.NNLS")
+test
+names(test)
+plot(test$SL.predict,newY)
+abline(0,1)
+
+#### Compare R2 values
+r2=1-(mean((test$SL.predict-newY)^2)/var(newY))
+text(-2,6,paste("R2 = ",round(r2,3),sep=""))
+```
+
+## Binary Outcomes
+```{r SL3, warning=F,message=F}
+############ Simulation function
+dat.gen.hard.bin=function(n,z,brks,sigmax) {
+  X=rnorm(n,0,sigmax)
+  pY=1/(1+exp(-(z[1]*(X<(-brks[1]))+z[2]*((-brks[1])<X & X <(-brks[2]))+z[3]*
+    ((-brks[2])<X & X<(-brks[3]))+
+	  z[4]*((-brks[3])<X & X<brks[3])+z[3]*(brks[3]<X & X<brks[2])+
+	  z[2]*(brks[2]<X & X<brks[1])+z[1]*(X>brks[1]))))
+	Y=rbinom(n,1,pY)
+	return(data.frame(Y,X)) }
+
+#### Set parameters of simulation
+z=c(-2,-1,1,2)
+brks=c(2,1,0.5)
+sigmax=2
+n=500
+V=10 #number of cross-validation folds
+dat.tst=dat.gen.hard.bin(n,z,brks,sigmax)
+Y=dat.tst[,1]
+X=data.frame(X=dat.tst[,2])
+
+SL.library <- c("SL.glm", "SL.stepAIC", "SL.bayesglm", "SL.randomForest", "SL.gam", "SL.mean")
+
+
+SL = SuperLearner(Y=Y,X=X,family=binomial(),SL.library=SL.library,verbose=F)
+predY = predict(SL, X)$pred
+X=X[,1]
+oo=order(X)
+plot(X,Y)
+lines(X[oo],predY[oo],lwd=2,col=2)
+truemeanY=1/(1+exp(-(z[1]*(X<(-brks[1]))+z[2]*((-brks[1])<X & X    <(-brks[2]))+
+      z[3]*((-brks[2])<X & X<(-brks[3]))+
+	   z[4]*((-brks[3])<X & X<brks[3])+z[3]*(brks[3]<X & X<brks[2])+z[2]*
+	  (brks[2]<X & X<brks[1])+z[1]*(X>brks[1]))))
+lines(X[oo],truemeanY[oo],lwd=2,col=3)
+legend(-6,0.8,c("SL fit","true mean"),lty=1,col=2:3)
+### Use CV.SuperLearner with 10-fold CV to evaluate performance
+fit.test=CV.SuperLearner(Y=Y,X=data.frame(X),family=binomial(),SL.library=SL.library,verbose=F,V=V)
+names(fit.test)
+predsY=fit.test$SL.predict
+
+summary(fit.test)
+plot(fit.test)
+```
+
+### Performance of Binary Classifier
+Given that we have used CV.SuperLearner to create a vector of CV-predictions using SL, we now need to convert that to measures of performance.  For now, we focus on the AUC (area under the ROC) as the measure of that performance.
+
+```{r SL4, warning=F,message=F}
+#process of reshuffle data for doing cross validation
+fld=fit.test$fold
+predsY=fit.test$SL.predict
+# n=length(predsY)
+### Below, change fld into a vector of which fold by observation
+fold=rep(NA,n)
+for(k in 1:V) {
+  ii=unlist(fld[k])
+	fold[ii]=k
+}
+
+### Get the CI for the x-validated AUC
+ciout=ci.cvAUC(predsY, Y, folds = fold)
+txt=paste("AUC = ",round(ciout$cvAUC,2),
+",  95% CI = ",round(ciout$ci[1],2),"-",round(ciout$ci[2],2),sep="")
+
+#### Compare via ROC plots
+pred <- prediction(predsY,Y)
+perf1 <- performance(pred, "sens", "spec")
+plot(1-slot(perf1,"x.values")[[1]],slot(perf1,"y.values")[[1]],
+     type="s",xlab="1-Specificity",ylab="Sensitivity",
+main="ROC Curve")
+### Put AUC with CI
+text(0.45,0.4,txt)
+### Put null line
+abline(0,1)
+```
+
+Now, we repeat by using wcgs data.
+
+```{r SL5, warning=F,message=F}
+### Read in wcgs data
+wcgs=read.dta("data/wcgs.dta")
+### reduce to only variables needed for analysis and also get rid of rows with missing
+### values
+dat=na.omit(wcgs[,c(11,2:7,9,10)])
+
+SL.library <- c("SL.glm", "SL.stepAIC", "SL.bayesglm", "SL.randomForest", "SL.gam", "SL.mean")
+Y=dat[,1]
+X=dat[,-1]
+#### Number of cross-validation folds
+V=5
+## CV.SL
+fit.test=CV.SuperLearner(Y=Y,X=X,family=binomial(),SL.library=SL.library,verbose=F,V=V)
+
+fld=fit.test$fold
+predsY=fit.test$SL.predict
+n=length(predsY)
+fold=rep(NA,n)
+for(k in 1:V) {
+  ii=unlist(fld[k])
+  fold[ii]=k
+}
+
+
+### Get the CI for the x-validated AUC
+ciout=ci.cvAUC(predsY, Y, folds = fold)
+txt=paste("AUC = ",round(ciout$cvAUC,2),
+    ",  95% CI = ",round(ciout$ci[1],2),"-",round(ciout$ci[2],2),sep="")
+
+#### Compare via ROC plots
+pred <- prediction(predsY,Y)
+perf1 <- performance(pred, "sens", "spec")
+plot(1-slot(perf1,"x.values")[[1]],slot(perf1,"y.values")[[1]],
+     type="s",xlab="1-Specificity",ylab="Sensitivity",
+main="ROC Curve")
+### Put AUC with CI
+text(0.55,0.4,txt)
+### Put null line
+abline(0,1)
+### Compare to main terms logistic regression
+SL.sht="SL.glm"
+fit.test=CV.SuperLearner(Y=Y,X=X,family=binomial(),SL.library=SL.sht,
+                         verbose=F,V=V)
+
+fld=fit.test$fold
+predsY=fit.test$SL.predict
+n=length(predsY)
+fold=rep(NA,n)
+for(k in 1:V) {
+  ii=unlist(fld[k])
+  fold[ii]=k
+}
+
+
+### Get the CI for the x-validated AUC
+ciout2=ci.cvAUC(predsY, Y, folds = fold)
+txt2=paste("AUC = ",round(ciout2$cvAUC,2),",  95% CI = ",round(ciout2$ci[1],2),"-",round(ciout2$ci[2],2),sep="")
+
+#### Compare via ROC plots
+pred <- prediction(predsY,Y)
+perf1 <- performance(pred, "sens", "spec")
+lines(1-slot(perf1,"x.values")[[1]],slot(perf1,"y.values")[[1]],
+      type="s",col=2)
+text(0.75,0.30,txt2,col=2)
+legend(0.05,0.95,c("SL","Logit Reg"),col=1:2,lty=rep(1,2),bty=n)
+```
+
+
+# Exercise
+Load library(MASS) so you have access to the Boston data.  Looking back atlast session, go back to exercise 13 and use SL to predict medv.  Duplicate the steps done above for the wcgs data.  Compare the results to fitting a simple linear model.
+
